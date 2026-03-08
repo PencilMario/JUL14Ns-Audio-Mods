@@ -231,13 +231,14 @@ inline std::string findMatchingDevice(const std::string& systemDeviceName, const
         return {};
     }
 
-    char** deviceList = nullptr;
-    unsigned int error = ts3Functions.getPlaybackDeviceList(modeID, &deviceList);
+    char*** deviceListPtr = nullptr;
+    unsigned int error = ts3Functions.getPlaybackDeviceList(modeID, &deviceListPtr);
 
-    if (error != ERROR_ok || !deviceList) {
+    if (error != ERROR_ok || !deviceListPtr || !*deviceListPtr) {
         return {};
     }
 
+    char** deviceList = *deviceListPtr;
     std::string result;
 
     // Strategy 1: Exact match
@@ -286,10 +287,7 @@ inline void switchPlaybackDeviceForAllConnections(
 
     auto connections = manager->getActiveConnections();
     for (uint64_t schid : connections) {
-        // Close old device (ignore errors)
-        ts3Functions.closePlaybackDevice(schid);
-
-        // Open new device
+        // Open new device (will close old one automatically if needed)
         unsigned int error = ts3Functions.openPlaybackDevice(schid, modeID, tsDevice.c_str());
         if (error != ERROR_ok) {
             char errorMsg[256];

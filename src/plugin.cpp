@@ -320,7 +320,8 @@ void ts3plugin_onEditCapturedVoiceDataEvent(uint64 serverConnectionHandlerID, sh
 			return current + (vadProbOverTime.size() - index) * next;
 		});
 		smoothedVadProb /= vadProbOverTime.size() / 2 * (1 + vadProbOverTime.size());
-		float targetGain = std::lerp(SILENCE_TARGET_GAIN, VOICE_TARGET_GAIN, smoothedVadProb);
+		// Linear interpolation: lerp(a, b, t) = a + t * (b - a)
+		float targetGain = SILENCE_TARGET_GAIN + smoothedVadProb * (VOICE_TARGET_GAIN - SILENCE_TARGET_GAIN);
 		for (int i = 0; i < 480; i++) {
 			CompressorMetaData cmd = compressor.process(&samples[channels * i], channels, targetGain);
 			loudness += cmd.loudness;
