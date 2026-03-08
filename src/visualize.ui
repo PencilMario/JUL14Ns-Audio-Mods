@@ -21,7 +21,7 @@
      </property>
      <widget class="QWidget" name="agc">
       <attribute name="title">
-       <string>Input AGC</string>
+       <string>输入 AGC</string>
       </attribute>
       <layout class="QVBoxLayout" name="verticalLayout_2">
        <item>
@@ -31,7 +31,7 @@
      </widget>
      <widget class="QWidget" name="lufs">
       <attribute name="title">
-       <string>LUFS (Pre AGC)</string>
+       <string>LUFS（AGC 前）</string>
       </attribute>
       <layout class="QVBoxLayout" name="verticalLayout_3">
        <item>
@@ -41,7 +41,7 @@
      </widget>
      <widget class="QWidget" name="lufsAgc">
       <attribute name="title">
-       <string>LUFS (Post AGC)</string>
+       <string>LUFS（AGC 后）</string>
       </attribute>
       <layout class="QVBoxLayout" name="verticalLayout_4">
        <item>
