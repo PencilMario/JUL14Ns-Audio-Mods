@@ -2,6 +2,13 @@
 #include "ui_config.h"
 #include <QRegularExpression>
 #include <QDateTime>
+#include <QPushButton>
+#include <QHBoxLayout>
+#include "device_switcher.h"
+
+/* Forward declaration for audio device manager */
+class AudioDeviceManager;
+extern AudioDeviceManager* g_audioDeviceManager;
 
 Config::Config(const QString& configLocation, QWidget* parent /* = nullptr */) : QDialog(parent),
 m_ui(std::make_unique<Ui::configui>()),
@@ -23,6 +30,26 @@ m_settings(std::make_unique<QSettings>(configLocation, QSettings::IniFormat, thi
 
 	// Connect log clear button
 	connect(m_ui->clear_logs, &QPushButton::clicked, this, &Config::clearLogs);
+
+	// Create and connect device control buttons
+	QPushButton* showDeviceButton = new QPushButton("显示当前设备", this);
+	QPushButton* switchDeviceButton = new QPushButton("切换到默认设备", this);
+
+	connect(showDeviceButton, &QPushButton::clicked, this, &Config::onShowCurrentDeviceInfo);
+	connect(switchDeviceButton, &QPushButton::clicked, this, &Config::onSwitchToDefaultDevice);
+
+	// Try to add buttons to the log layout if it exists
+	if (m_ui->message_log && m_ui->message_log->parentWidget()) {
+		QWidget* logParent = m_ui->message_log->parentWidget();
+		QLayout* parentLayout = logParent->layout();
+		if (parentLayout) {
+			QHBoxLayout* buttonLayout = new QHBoxLayout();
+			buttonLayout->addWidget(showDeviceButton);
+			buttonLayout->addWidget(switchDeviceButton);
+			buttonLayout->addStretch();
+			parentLayout->addItem(buttonLayout);
+		}
+	}
 
 	connect(m_ui->vad_cutoff, &QSlider::valueChanged, this, [&](int value) {
 		m_ui->vad_cutoff_percentage->setText(QString::asprintf("%d \\%", value));
@@ -109,4 +136,57 @@ void Config::clearLogs() {
 	if (m_ui && m_ui->message_log) {
 		m_ui->message_log->clear();
 	}
+}
+
+void Config::onShowCurrentDeviceInfo() {
+	if (!g_audioDeviceManager) {
+		addLogMessage("Error: Audio device manager not initialized");
+		return;
+	}
+
+	// Get the current system default device
+	std::string currentDevice = g_audioDeviceManager->getCurrentSystemDevice();
+
+	if (currentDevice.empty()) {
+		addLogMessage("Could not detect current system default device");
+	} else {
+		addLogMessage("Current system default device: [" + QString::fromStdString(currentDevice) + "]");
+	}
+
+	// Get the last detected device
+	std::string lastDetected = g_audioDeviceManager->getLastSwitchedDevice();
+	if (!lastDetected.empty()) {
+		addLogMessage("Last switched TS3 device: [" + QString::fromStdString(lastDetected) + "]");
+	}
+}
+
+void Config::onSwitchToDefaultDevice() {
+	if (!g_audioDeviceManager) {
+		addLogMessage("Error: Audio device manager not initialized");
+		return;
+	}
+
+	// Get the current system default device
+	std::string systemDevice = g_audioDeviceManager->getCurrentSystemDevice();
+	if (systemDevice.empty()) {
+		addLogMessage("Error: Could not detect system default device");
+		return;
+	}
+
+	addLogMessage("Attempting to switch to system default device: [" + QString::fromStdString(systemDevice) + "]");
+
+	// Get the last used modeID
+	std::string modeID = g_audioDeviceManager->getLastUsedModeID();
+	if (modeID.empty()) {
+		addLogMessage("Error: No modeID available. Please connect to a server first.");
+		return;
+	}
+
+	// Create a log callback
+	auto logCallback = [this](const std::string& message) {
+		addLogMessage(QString::fromStdString(message));
+	};
+
+	// Trigger the device switch using the device_switcher function
+	switchPlaybackDeviceForAllConnections(g_audioDeviceManager, systemDevice, modeID.c_str(), logCallback);
 }

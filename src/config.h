@@ -33,6 +33,17 @@ protected:
 	void showEvent(QShowEvent* e) override;
 	void changeEvent(QEvent* e) override;
 
+private slots:
+	/**
+	 * @brief Output current device information
+	 */
+	void onShowCurrentDeviceInfo();
+
+	/**
+	 * @brief Switch to default system device
+	 */
+	void onSwitchToDefaultDevice();
+
 private:
 	std::unique_ptr<Ui::configui> m_ui;
 	std::unique_ptr<QSettings> m_settings;
