@@ -20,6 +20,10 @@
 #include <cctype>
 #include <functional>
 
+/* TS3 API headers - for ts3Functions, ERROR_ok, and plugin message constants */
+#include "teamspeak/public_errors.h"
+#include "teamspeak/public_definitions.h"
+
 
 /* Forward declaration for TS3 API */
 extern "C" {
