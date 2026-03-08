@@ -1,6 +1,7 @@
 #include "config.h"
 #include "ui_config.h"
 #include <QRegularExpression>
+#include <QDateTime>
 
 Config::Config(const QString& configLocation, QWidget* parent /* = nullptr */) : QDialog(parent),
 m_ui(std::make_unique<Ui::configui>()),
@@ -19,6 +20,9 @@ m_settings(std::make_unique<QSettings>(configLocation, QSettings::IniFormat, thi
 		this->saveSettings();
 	});
 	connect(m_ui->pbCancel, &QPushButton::clicked, this, &QWidget::close);
+
+	// Connect log clear button
+	connect(m_ui->clear_logs, &QPushButton::clicked, this, &Config::clearLogs);
 
 	connect(m_ui->vad_cutoff, &QSlider::valueChanged, this, [&](int value) {
 		m_ui->vad_cutoff_percentage->setText(QString::asprintf("%d \\%", value));
@@ -91,4 +95,18 @@ void Config::loadSettings() {
 		uuid_string += uuid;
 	}
 	m_ui->uuids->setPlainText(uuid_string);
+}
+
+void Config::addLogMessage(const QString& message) {
+	if (m_ui && m_ui->message_log) {
+		QString timestamp = QDateTime::currentDateTime().toString("hh:mm:ss");
+		QString formattedMessage = QString("[%1] %2").arg(timestamp, message);
+		m_ui->message_log->appendPlainText(formattedMessage);
+	}
+}
+
+void Config::clearLogs() {
+	if (m_ui && m_ui->message_log) {
+		m_ui->message_log->clear();
+	}
 }

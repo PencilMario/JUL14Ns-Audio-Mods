@@ -19,6 +19,16 @@ public:
 	void setConfigOption(const QString& option, const QVariant& value);
 	QVariant getConfigOption(const QString& option) const;
 
+	/**
+	 * @brief Add a message to the log display
+	 */
+	void addLogMessage(const QString& message);
+
+	/**
+	 * @brief Clear all log messages
+	 */
+	void clearLogs();
+
 protected:
 	void showEvent(QShowEvent* e) override;
 	void changeEvent(QEvent* e) override;

@@ -18,6 +18,7 @@
 #include <memory>
 #include <algorithm>
 #include <cctype>
+#include <functional>
 
 /* Forward declaration for TS3 API */
 extern "C" {
@@ -128,10 +129,15 @@ private:
     std::unique_ptr<AudioDeviceListener> m_deviceListener;
     bool m_enabled = false;
     std::string m_lastSwitchedDevice;  // Track last switched device for logging
+    std::string m_lastDetectedSystemDevice;  // Track last detected system device for change detection
+    std::string m_lastUsedModeID;  // Track the last used modeID for device switching
+    std::chrono::steady_clock::time_point m_lastCheckTime;
+    static constexpr int CHECK_INTERVAL_MS = 1000;  // Check system device every 1 second
 
 public:
     AudioDeviceManager() : m_deviceListener(std::make_unique<AudioDeviceListener>()) {
         m_lastSwitchTime = std::chrono::steady_clock::now() - std::chrono::milliseconds(DEBOUNCE_MS + 1);
+        m_lastCheckTime = std::chrono::steady_clock::now() - std::chrono::milliseconds(CHECK_INTERVAL_MS + 1);
     }
 
     ~AudioDeviceManager() = default;
@@ -212,6 +218,62 @@ public:
     void setLastSwitchedDevice(const std::string& deviceName) {
         m_lastSwitchedDevice = deviceName;
     }
+
+    /**
+     * @brief Check if system default device has changed and trigger switch if needed
+     * This should be called periodically to detect system device changes
+     * @return true if a device change was detected
+     */
+    bool checkAndSwitchIfDeviceChanged() {
+        if (!m_enabled) {
+            return false;
+        }
+
+        // Check if enough time has passed since last check
+        auto now = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_lastCheckTime);
+        if (elapsed.count() < CHECK_INTERVAL_MS) {
+            return false;
+        }
+
+        m_lastCheckTime = now;
+
+        std::string currentSystemDevice = getSystemDefaultDevice();
+        if (currentSystemDevice.empty()) {
+            return false;
+        }
+
+        // If system device has changed since last detected
+        if (m_lastDetectedSystemDevice != currentSystemDevice) {
+            m_lastDetectedSystemDevice = currentSystemDevice;
+            return true;  // Signal that a device change was detected
+        }
+
+        return false;
+    }
+
+    /**
+     * @brief Get the last used modeID
+     */
+    std::string getLastUsedModeID() const {
+        return m_lastUsedModeID;
+    }
+
+    /**
+     * @brief Update last used modeID (call this after a device switch)
+     */
+    void updateLastUsedModeID(const char* modeID) {
+        if (modeID) {
+            m_lastUsedModeID = modeID;
+        }
+    }
+
+    /**
+     * @brief Get current system device name
+     */
+    std::string getCurrentSystemDevice() const {
+        return m_lastDetectedSystemDevice;
+    }
 };
 
 /**
@@ -289,7 +351,8 @@ inline std::string findMatchingDevice(const std::string& systemDeviceName, const
 inline void switchPlaybackDeviceForAllConnections(
     AudioDeviceManager* manager,
     const std::string& systemDevice,
-    const char* modeID)
+    const char* modeID,
+    std::function<void(const std::string&)> logCallback = nullptr)
 {
     if (!manager || !manager->isEnabled() || !manager->canSwitch()) {
         return;
@@ -297,6 +360,9 @@ inline void switchPlaybackDeviceForAllConnections(
 
     std::string tsDevice = findMatchingDevice(systemDevice, modeID);
     if (tsDevice.empty()) {
+        if (logCallback) {
+            logCallback("Failed to find matching TS3 playback device for: " + systemDevice);
+        }
         return;
     }
 
@@ -320,6 +386,9 @@ inline void switchPlaybackDeviceForAllConnections(
             if (errorMsg) {
                 std::string errMsg = "Failed to switch playback device to [" + tsDevice + "]: " + std::string(errorMsg);
                 ts3Functions.printMessage(schid, errMsg.c_str(), PLUGIN_MESSAGE_TARGET_SERVER);
+                if (logCallback) {
+                    logCallback(errMsg);
+                }
             }
         } else {
             // Log successful device switch
@@ -330,6 +399,9 @@ inline void switchPlaybackDeviceForAllConnections(
                 logMsg = "Playback device switched from [" + lastDevice + "] to [" + tsDevice + "]";
             }
             ts3Functions.printMessage(schid, logMsg.c_str(), PLUGIN_MESSAGE_TARGET_SERVER);
+            if (logCallback) {
+                logCallback(logMsg);
+            }
         }
     }
 

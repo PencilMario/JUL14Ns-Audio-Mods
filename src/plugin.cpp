@@ -287,7 +287,26 @@ void ts3plugin_onEditCapturedVoiceDataEvent(uint64 serverConnectionHandlerID, sh
 		logMessage << "Unexpected number of TX samples (" << sampleCount << "), skipping!";
 		ts3Functions.logMessage(logMessage.str().c_str(), LogLevel_WARNING, PLUGIN_NAME, serverConnectionHandlerID);
 	}
-	
+
+	// Periodically check if system default device has changed (we do this here because this function is called frequently)
+	// We use an empty modeID here just for change detection, the actual switch will use the stored modeID
+	if (g_audioDeviceManager && g_audioDeviceManager->checkAndSwitchIfDeviceChanged()) {
+		std::string systemDevice = g_audioDeviceManager->getSystemDefaultDevice();
+		std::string lastModeID = g_audioDeviceManager->getLastUsedModeID();
+
+		if (!systemDevice.empty() && !lastModeID.empty()) {
+			// Create log callback
+			auto logCallback = [](const std::string& message) {
+				if (configObject) {
+					configObject->addLogMessage(QString::fromStdString(message));
+				}
+			};
+
+			// Trigger device switch with the last known modeID
+			switchPlaybackDeviceForAllConnections(g_audioDeviceManager, systemDevice, lastModeID.c_str(), logCallback);
+		}
+	}
+
 	//std::span<short> samples(rawSamples, sampleCount);
 
 	bool filter = configObject->getConfigOption("inputFilter").toBool();
@@ -388,6 +407,9 @@ void ts3plugin_onSoundDeviceListChangedEvent(const char* modeID, int playOrCap)
 	// Only handle playback device changes
 	if (playOrCap != PLAYBACK) return;
 
+	// Store the modeID for later use in periodic checks
+	g_audioDeviceManager->updateLastUsedModeID(modeID);
+
 	// Check if feature is enabled
 	if (!g_audioDeviceManager->isEnabled()) return;
 
@@ -397,6 +419,13 @@ void ts3plugin_onSoundDeviceListChangedEvent(const char* modeID, int playOrCap)
 		return;
 	}
 
+	// Create log callback
+	auto logCallback = [](const std::string& message) {
+		if (configObject) {
+			configObject->addLogMessage(QString::fromStdString(message));
+		}
+	};
+
 	// Switch playback device for all active connections
-	switchPlaybackDeviceForAllConnections(g_audioDeviceManager, systemDevice, modeID);
+	switchPlaybackDeviceForAllConnections(g_audioDeviceManager, systemDevice, modeID, logCallback);
 }
