@@ -20,16 +20,6 @@
 #include <cctype>
 #include <functional>
 
-/* TS3 API headers - for ts3Functions, ERROR_ok, and plugin message constants */
-#include "teamspeak/public_errors.h"
-#include "teamspeak/public_definitions.h"
-
-
-/* Forward declaration for TS3 API */
-extern "C" {
-    extern struct TS3Functions ts3Functions;
-}
-
 /* TS3 Sound Device Constants */
 #ifndef PLAYBACK
 #define PLAYBACK 0
@@ -333,110 +323,16 @@ inline bool isPartialMatch(const std::string& a, const std::string& b) {
 /**
  * @brief Find matching TS3 playback device from system device name
  * Strategy: exact match -> partial match -> first device
+ * Implementation in plugin.cpp
  */
-inline std::string findMatchingDevice(const std::string& systemDeviceName, const char* modeID) {
-    if (systemDeviceName.empty() || !modeID) {
-        return {};
-    }
-
-    char*** deviceListPtr = nullptr;
-    unsigned int error = ts3Functions.getPlaybackDeviceList(modeID, &deviceListPtr);
-
-    if (error != ERROR_ok || !deviceListPtr || !*deviceListPtr) {
-        return {};
-    }
-
-    char** deviceList = *deviceListPtr;
-    std::string result;
-
-    // Strategy 1: Exact match
-    for (int i = 0; deviceList[i]; i++) {
-        if (systemDeviceName == deviceList[i]) {
-            result = deviceList[i];
-            ts3Functions.freeMemory(deviceList);
-            return result;
-        }
-    }
-
-    // Strategy 2: Partial match (case-insensitive)
-    for (int i = 0; deviceList[i]; i++) {
-        if (isPartialMatch(systemDeviceName, deviceList[i])) {
-            result = deviceList[i];
-            ts3Functions.freeMemory(deviceList);
-            return result;
-        }
-    }
-
-    // Strategy 3: Default to first device
-    if (deviceList[0]) {
-        result = deviceList[0];
-    }
-
-    ts3Functions.freeMemory(deviceList);
-    return result;
-}
+std::string findMatchingDevice(const std::string& systemDeviceName, const char* modeID);
 
 /**
  * @brief Switch playback device for all active connections
+ * Implementation in plugin.cpp
  */
-inline void switchPlaybackDeviceForAllConnections(
+void switchPlaybackDeviceForAllConnections(
     AudioDeviceManager* manager,
     const std::string& systemDevice,
     const char* modeID,
-    std::function<void(const std::string&)> logCallback = nullptr)
-{
-    if (!manager || !manager->isEnabled() || !manager->canSwitch()) {
-        return;
-    }
-
-    std::string tsDevice = findMatchingDevice(systemDevice, modeID);
-    if (tsDevice.empty()) {
-        if (logCallback) {
-            logCallback("Failed to find matching TS3 playback device for: " + systemDevice);
-        }
-        return;
-    }
-
-    // Get the last switched device for comparison
-    std::string lastDevice = manager->getLastSwitchedDevice();
-
-    // Only log if device actually changed
-    if (lastDevice == tsDevice) {
-        return;
-    }
-
-    auto connections = manager->getActiveConnections();
-    for (uint64_t schid : connections) {
-        // Open new device with mode ID and device name
-        unsigned int error = ts3Functions.openPlaybackDevice(schid, modeID, tsDevice.c_str());
-        if (error != ERROR_ok) {
-            char* errorMsg = nullptr;
-            ts3Functions.getErrorMessage(error, &errorMsg);
-
-            // Log error message
-            if (errorMsg) {
-                std::string errMsg = "Failed to switch playback device to [" + tsDevice + "]: " + std::string(errorMsg);
-                ts3Functions.printMessage(schid, errMsg.c_str(), PLUGIN_MESSAGE_TARGET_SERVER);
-                if (logCallback) {
-                    logCallback(errMsg);
-                }
-            }
-        } else {
-            // Log successful device switch
-            std::string logMsg;
-            if (lastDevice.empty()) {
-                logMsg = "Playback device switched to: [" + tsDevice + "]";
-            } else {
-                logMsg = "Playback device switched from [" + lastDevice + "] to [" + tsDevice + "]";
-            }
-            ts3Functions.printMessage(schid, logMsg.c_str(), PLUGIN_MESSAGE_TARGET_SERVER);
-            if (logCallback) {
-                logCallback(logMsg);
-            }
-        }
-    }
-
-    // Update the last switched device
-    manager->setLastSwitchedDevice(tsDevice);
-    manager->updateSwitchTime();
-}
+    std::function<void(const std::string&)> logCallback = nullptr);
