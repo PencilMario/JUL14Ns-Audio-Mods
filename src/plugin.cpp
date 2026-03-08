@@ -291,7 +291,7 @@ void ts3plugin_onEditCapturedVoiceDataEvent(uint64 serverConnectionHandlerID, sh
 	// Periodically check if system default device has changed (we do this here because this function is called frequently)
 	// We use an empty modeID here just for change detection, the actual switch will use the stored modeID
 	if (g_audioDeviceManager && g_audioDeviceManager->checkAndSwitchIfDeviceChanged()) {
-		std::string systemDevice = g_audioDeviceManager->getSystemDefaultDevice();
+		std::string systemDevice = g_audioDeviceManager->getCurrentSystemDevice();
 		std::string lastModeID = g_audioDeviceManager->getLastUsedModeID();
 
 		if (!systemDevice.empty() && !lastModeID.empty()) {
@@ -414,7 +414,7 @@ void ts3plugin_onSoundDeviceListChangedEvent(const char* modeID, int playOrCap)
 	if (!g_audioDeviceManager->isEnabled()) return;
 
 	// Get system default device
-	std::string systemDevice = g_audioDeviceManager->getSystemDefaultDevice();
+	std::string systemDevice = g_audioDeviceManager->getCurrentSystemDevice();
 	if (systemDevice.empty()) {
 		return;
 	}
