@@ -127,6 +127,7 @@ private:
 
     std::unique_ptr<AudioDeviceListener> m_deviceListener;
     bool m_enabled = false;
+    std::string m_lastSwitchedDevice;  // Track last switched device for logging
 
 public:
     AudioDeviceManager() : m_deviceListener(std::make_unique<AudioDeviceListener>()) {
@@ -196,6 +197,20 @@ public:
      */
     void updateSwitchTime() {
         m_lastSwitchTime = std::chrono::steady_clock::now();
+    }
+
+    /**
+     * @brief Get the last switched device name
+     */
+    std::string getLastSwitchedDevice() const {
+        return m_lastSwitchedDevice;
+    }
+
+    /**
+     * @brief Update last switched device name
+     */
+    void setLastSwitchedDevice(const std::string& deviceName) {
+        m_lastSwitchedDevice = deviceName;
     }
 };
 
@@ -285,6 +300,14 @@ inline void switchPlaybackDeviceForAllConnections(
         return;
     }
 
+    // Get the last switched device for comparison
+    std::string lastDevice = manager->getLastSwitchedDevice();
+
+    // Only log if device actually changed
+    if (lastDevice == tsDevice) {
+        return;
+    }
+
     auto connections = manager->getActiveConnections();
     for (uint64_t schid : connections) {
         // Open new device with mode ID and device name
@@ -292,9 +315,25 @@ inline void switchPlaybackDeviceForAllConnections(
         if (error != ERROR_ok) {
             char* errorMsg = nullptr;
             ts3Functions.getErrorMessage(error, &errorMsg);
-            // Log error but continue with other connections
+
+            // Log error message
+            if (errorMsg) {
+                std::string errMsg = "Failed to switch playback device to [" + tsDevice + "]: " + std::string(errorMsg);
+                ts3Functions.printMessage(schid, errMsg.c_str(), PluginMessageTarget_PLUGIN);
+            }
+        } else {
+            // Log successful device switch
+            std::string logMsg;
+            if (lastDevice.empty()) {
+                logMsg = "Playback device switched to: [" + tsDevice + "]";
+            } else {
+                logMsg = "Playback device switched from [" + lastDevice + "] to [" + tsDevice + "]";
+            }
+            ts3Functions.printMessage(schid, logMsg.c_str(), PluginMessageTarget_PLUGIN);
         }
     }
 
+    // Update the last switched device
+    manager->setLastSwitchedDevice(tsDevice);
     manager->updateSwitchTime();
 }
