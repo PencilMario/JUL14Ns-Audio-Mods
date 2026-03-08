@@ -134,8 +134,8 @@ static void syncAudioDeviceManagerSettings() {
 
 void ts3plugin_initMenus(struct PluginMenuItem ***menuItems, char **menuIcon) {
 	BEGIN_CREATE_MENUS(2);
-	CREATE_MENU_ITEM(PLUGIN_MENU_TYPE_GLOBAL, MENU_ID_GLOBAL_SETTINGS, "Settings", "");
-	CREATE_MENU_ITEM(PLUGIN_MENU_TYPE_GLOBAL, MENU_ID_GLOBAL_VISUALIZE, "Visualize", "");
+	CREATE_MENU_ITEM(PLUGIN_MENU_TYPE_GLOBAL, MENU_ID_GLOBAL_SETTINGS, "设置", "");
+	CREATE_MENU_ITEM(PLUGIN_MENU_TYPE_GLOBAL, MENU_ID_GLOBAL_VISUALIZE, "可视化", "");
 	END_CREATE_MENUS;
 	menuIcon = NULL;
 }

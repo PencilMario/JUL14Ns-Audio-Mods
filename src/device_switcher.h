@@ -71,16 +71,7 @@ public:
         return S_OK;
     }
 
-    STDMETHODIMP OnDefaultDeviceChanged(EDataFlow flow, ERole role, LPCWSTR pwstrDefaultDeviceId) {
-        // Only care about playback device changes
-        if (flow == eRender && role == eConsole) {
-            // Signal that device has changed
-            if (m_manager) {
-                m_manager->signalDeviceChanged();
-            }
-        }
-        return S_OK;
-    }
+    STDMETHODIMP OnDefaultDeviceChanged(EDataFlow flow, ERole role, LPCWSTR pwstrDefaultDeviceId);
 
     STDMETHODIMP OnPropertyValueChanged(LPCWSTR pwstrDeviceId, const PROPERTYKEY key) {
         return S_OK;
@@ -365,6 +356,22 @@ public:
         return {};
     }
 };
+
+#if defined(WIN32) || defined(__WIN32__) || defined(_WIN32)
+/**
+ * @brief Implementation of OnDefaultDeviceChanged callback (defined after AudioDeviceManager)
+ */
+inline HRESULT AudioDeviceNotificationClient::OnDefaultDeviceChanged(EDataFlow flow, ERole role, LPCWSTR pwstrDefaultDeviceId) {
+    // Only care about playback device changes
+    if (flow == eRender && role == eConsole) {
+        // Signal that device has changed
+        if (m_manager) {
+            m_manager->signalDeviceChanged();
+        }
+    }
+    return S_OK;
+}
+#endif
 
 /**
  * @brief Convert string to lowercase for case-insensitive comparison
