@@ -319,7 +319,7 @@ inline void switchPlaybackDeviceForAllConnections(
             // Log error message
             if (errorMsg) {
                 std::string errMsg = "Failed to switch playback device to [" + tsDevice + "]: " + std::string(errorMsg);
-                ts3Functions.printMessage(schid, errMsg.c_str(), PluginMessageTarget_PLUGIN);
+                ts3Functions.printMessage(schid, errMsg.c_str(), PLUGIN_MESSAGE_TARGET_SERVER);
             }
         } else {
             // Log successful device switch
@@ -329,7 +329,7 @@ inline void switchPlaybackDeviceForAllConnections(
             } else {
                 logMsg = "Playback device switched from [" + lastDevice + "] to [" + tsDevice + "]";
             }
-            ts3Functions.printMessage(schid, logMsg.c_str(), PluginMessageTarget_PLUGIN);
+            ts3Functions.printMessage(schid, logMsg.c_str(), PLUGIN_MESSAGE_TARGET_SERVER);
         }
     }
 
