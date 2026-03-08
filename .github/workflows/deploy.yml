@@ -50,17 +50,16 @@ jobs:
           path: .
       - name: Setup MSVC (Windows only)
         uses: ilammy/msvc-dev-cmd@v1
-        if: matrix.os == 'windows-2019'
+        if: contains(matrix.os, 'windows')
         with:
           arch: ${{ matrix.arch }}
-          toolset: 14.0
       - name: Install Qt
         uses: jurplel/install-qt-action@v3
         with:
           version: '5.15.2'
           target: 'desktop'
           modules: 'qtcharts'
-          arch: ${{ matrix.os == 'windows-2019' && (matrix.arch == 'x64' && 'win64_msvc2019_64' || 'win32_msvc2019' ) || (matrix.os == 'ubuntu-latest' && 'gcc_64' || 'clang_64') }}
+          arch: ${{ contains(matrix.os, 'windows') && (matrix.arch == 'x64' && 'win64_msvc2019_64' || 'win32_msvc2019') || 'gcc_64' }}
           dir: '${{ github.workspace }}'
           cache: true
           cache-key-prefix: ${{ runner.os }}-${{ matrix.arch }}-Qt
@@ -68,26 +67,17 @@ jobs:
         uses: jwlawson/actions-setup-cmake@v1.14
       - name: Build
         run: |
-          cmake ${{matrix.os == 'windows-2019' && '-A' || ''}} ${{matrix.os == 'windows-2019' && (matrix.arch == 'x64' && 'x64' || 'Win32') || '' }} .
+          cmake ${{contains(matrix.os, 'windows') && '-A' || ''}} ${{contains(matrix.os, 'windows') && (matrix.arch == 'x64' && 'x64' || 'Win32') || '' }} .
           cmake --build . --config Release
       - name: Rename release (Windows)
-        if: matrix.os == 'windows-2019'
+        if: matrix.os == 'windows-latest'
         run: |
           mv Release/${{ env.PLUGIN_NAME }}.dll ${{ env.PLUGIN_NAME }}_win${{ matrix.arch == 'x64' && '64' || '32' }}.dll
-      - name: Rename release (Linux)
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          mv lib${{ env.PLUGIN_NAME }}.so ${{ env.PLUGIN_NAME }}_linux_amd64.so
-      - name: Rename release (MacOS)
-        if: matrix.os == 'macos-latest'
-        run: |
-          mv lib${{ env.PLUGIN_NAME }}.dylib ${{ env.PLUGIN_NAME }}_mac.dylib
-          install_name_tool -id ${{ env.PLUGIN_NAME }}_mac.dylib -change @rpath/QtWidgets.framework/Versions/5/QtWidgets @rpath/libQt5Widgets.dylib -change @rpath/QtGui.framework/Versions/5/QtGui @rpath/libQt5Gui.dylib -change @rpath/QtCore.framework/Versions/5/QtCore @rpath/libQt5Core.dylib ${{ env.PLUGIN_NAME }}_mac.dylib
       - name: Archive production artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.os }}${{ matrix.arch }}
-          path: ${{ env.PLUGIN_NAME }}_[win|linux|mac]*.*
+          path: ${{ env.PLUGIN_NAME }}_win*.dll
 
   release:
     needs: build
