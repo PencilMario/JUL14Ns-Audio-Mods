@@ -79,6 +79,14 @@ int ts3plugin_init() {
 	g_audioDeviceManager = new AudioDeviceManager();
 	if (configObject) {
 		g_audioDeviceManager->setEnabled(configObject->getConfigOption("autoDeviceSwitch").toBool());
+
+		// Log the default device on startup
+		auto logCallback = [](const std::string& message) {
+			if (configObject) {
+				configObject->addLogMessage(QString::fromStdString(message));
+			}
+		};
+		g_audioDeviceManager->initializeAndLogDefaultDevice(logCallback);
 	}
 
 	int expectedSize = rnnoise_get_frame_size();

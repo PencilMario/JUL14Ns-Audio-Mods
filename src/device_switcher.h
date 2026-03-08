@@ -20,64 +20,6 @@
 #include <cctype>
 #include <functional>
 
-/* Forward declarations */
-class AudioDeviceManager;
-
-#if defined(WIN32) || defined(__WIN32__) || defined(_WIN32)
-/**
- * @brief WASAPI notification client to detect device changes
- */
-class AudioDeviceNotificationClient : public IMMNotificationClient {
-private:
-    LONG m_refCount = 1;
-    AudioDeviceManager* m_manager = nullptr;
-
-public:
-    AudioDeviceNotificationClient(AudioDeviceManager* manager) : m_manager(manager) {}
-
-    // IUnknown
-    STDMETHODIMP QueryInterface(REFIID riid, VOID **ppvInterface) {
-        if (IID_IUnknown == riid || __uuidof(IMMNotificationClient) == riid) {
-            AddRef();
-            *ppvInterface = this;
-            return S_OK;
-        }
-        *ppvInterface = NULL;
-        return E_NOINTERFACE;
-    }
-
-    STDMETHODIMP_(ULONG) AddRef() {
-        return InterlockedIncrement(&m_refCount);
-    }
-
-    STDMETHODIMP_(ULONG) Release() {
-        ULONG ulRefCount = InterlockedDecrement(&m_refCount);
-        if (0 == ulRefCount) {
-            delete this;
-        }
-        return ulRefCount;
-    }
-
-    // IMMNotificationClient
-    STDMETHODIMP OnDeviceStateChanged(LPCWSTR pwstrDeviceId, DWORD dwNewState) {
-        return S_OK;
-    }
-
-    STDMETHODIMP OnDeviceAdded(LPCWSTR pwstrDeviceId) {
-        return S_OK;
-    }
-
-    STDMETHODIMP OnDeviceRemoved(LPCWSTR pwstrDeviceId) {
-        return S_OK;
-    }
-
-    STDMETHODIMP OnDefaultDeviceChanged(EDataFlow flow, ERole role, LPCWSTR pwstrDefaultDeviceId);
-
-    STDMETHODIMP OnPropertyValueChanged(LPCWSTR pwstrDeviceId, const PROPERTYKEY key) {
-        return S_OK;
-    }
-};
-#endif
 
 /* Forward declaration for TS3 API */
 extern "C" {
@@ -185,44 +127,16 @@ private:
     std::string m_lastDetectedSystemDevice;  // Track last detected system device for change detection
     std::string m_lastUsedModeID;  // Track the last used modeID for device switching
 
-#if defined(WIN32) || defined(__WIN32__) || defined(_WIN32)
-    IMMDeviceEnumerator* m_deviceEnumerator = nullptr;
-    AudioDeviceNotificationClient* m_notificationClient = nullptr;
-#endif
-
-    bool m_deviceChanged = false;
     std::chrono::steady_clock::time_point m_lastCheckTime;
-    static constexpr int CHECK_INTERVAL_MS = 500;  // Check more frequently when device change is detected
+    static constexpr int CHECK_INTERVAL_MS = 500;  // Poll interval for device change detection
 
 public:
     AudioDeviceManager() : m_deviceListener(std::make_unique<AudioDeviceListener>()) {
         m_lastSwitchTime = std::chrono::steady_clock::now() - std::chrono::milliseconds(DEBOUNCE_MS + 1);
         m_lastCheckTime = std::chrono::steady_clock::now() - std::chrono::milliseconds(CHECK_INTERVAL_MS + 1);
-
-#if defined(WIN32) || defined(__WIN32__) || defined(_WIN32)
-        // Initialize COM and create device enumerator for notifications
-        HRESULT hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), NULL, CLSCTX_INPROC_SERVER,
-                                      __uuidof(IMMDeviceEnumerator), (void**)&m_deviceEnumerator);
-        if (SUCCEEDED(hr) && m_deviceEnumerator) {
-            // Create and register notification client
-            m_notificationClient = new AudioDeviceNotificationClient(this);
-            m_deviceEnumerator->RegisterEndpointNotificationCallback(m_notificationClient);
-        }
-#endif
     }
 
     ~AudioDeviceManager() {
-#if defined(WIN32) || defined(__WIN32__) || defined(_WIN32)
-        if (m_notificationClient && m_deviceEnumerator) {
-            m_deviceEnumerator->UnregisterEndpointNotificationCallback(m_notificationClient);
-            m_notificationClient->Release();
-            m_notificationClient = nullptr;
-        }
-        if (m_deviceEnumerator) {
-            m_deviceEnumerator->Release();
-            m_deviceEnumerator = nullptr;
-        }
-#endif
     }
 
     /**
@@ -303,31 +217,44 @@ public:
     }
 
     /**
-     * @brief Signal that device has changed (called by notification client)
-     */
-    void signalDeviceChanged() {
-        m_deviceChanged = true;
-    }
-
-    /**
      * @brief Check if system default device has changed and needs switching
-     * This checks the flag set by the WASAPI notification client
+     * Polls by getting current system device and comparing with last detected device
      * @return true if a device change was detected
      */
     bool checkAndSwitchIfDeviceChanged() {
-        if (!m_enabled || !m_deviceChanged) {
+        if (!m_enabled) {
             return false;
         }
 
-        // Check if enough time has passed since last switch (debounce)
+        // Check if enough time has passed since last check (polling interval)
         auto now = std::chrono::steady_clock::now();
-        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_lastSwitchTime);
-        if (elapsed.count() < DEBOUNCE_MS) {
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_lastCheckTime);
+        if (elapsed.count() < CHECK_INTERVAL_MS) {
             return false;
         }
 
-        m_deviceChanged = false;
-        return true;
+        m_lastCheckTime = now;
+
+        // Get current system device (this reinitializes WASAPI objects)
+        std::string currentDevice = getSystemDefaultDevice();
+
+        // If we can't get device info, can't detect changes
+        if (currentDevice.empty()) {
+            return false;
+        }
+
+        // Check if device has changed
+        if (m_lastDetectedSystemDevice != currentDevice) {
+            m_lastDetectedSystemDevice = currentDevice;
+
+            // Check if enough time has passed since last switch (debounce)
+            auto switchElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_lastSwitchTime);
+            if (switchElapsed.count() >= DEBOUNCE_MS) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -355,23 +282,24 @@ public:
         }
         return {};
     }
-};
 
-#if defined(WIN32) || defined(__WIN32__) || defined(_WIN32)
-/**
- * @brief Implementation of OnDefaultDeviceChanged callback (defined after AudioDeviceManager)
- */
-inline HRESULT AudioDeviceNotificationClient::OnDefaultDeviceChanged(EDataFlow flow, ERole role, LPCWSTR pwstrDefaultDeviceId) {
-    // Only care about playback device changes
-    if (flow == eRender && role == eConsole) {
-        // Signal that device has changed
-        if (m_manager) {
-            m_manager->signalDeviceChanged();
+    /**
+     * @brief Initialize and log the default device at startup
+     */
+    void initializeAndLogDefaultDevice(std::function<void(const std::string&)> logCallback = nullptr) {
+        std::string initialDevice = getCurrentSystemDevice();
+        if (!initialDevice.empty()) {
+            m_lastDetectedSystemDevice = initialDevice;
+            if (logCallback) {
+                logCallback("Default playback device detected: [" + initialDevice + "]");
+            }
+        } else {
+            if (logCallback) {
+                logCallback("Warning: Could not detect default playback device on startup");
+            }
         }
     }
-    return S_OK;
-}
-#endif
+};
 
 /**
  * @brief Convert string to lowercase for case-insensitive comparison
