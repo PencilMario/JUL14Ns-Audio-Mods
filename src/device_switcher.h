@@ -287,11 +287,11 @@ inline void switchPlaybackDeviceForAllConnections(
 
     auto connections = manager->getActiveConnections();
     for (uint64_t schid : connections) {
-        // Open new device (will close old one automatically if needed)
-        unsigned int error = ts3Functions.openPlaybackDevice(schid, tsDevice.c_str());
+        // Open new device with mode ID and device name
+        unsigned int error = ts3Functions.openPlaybackDevice(schid, modeID, tsDevice.c_str());
         if (error != ERROR_ok) {
-            char errorMsg[256];
-            ts3Functions.getErrorMessage(error, errorMsg, sizeof(errorMsg));
+            char* errorMsg = nullptr;
+            ts3Functions.getErrorMessage(error, &errorMsg);
             // Log error but continue with other connections
         }
     }
