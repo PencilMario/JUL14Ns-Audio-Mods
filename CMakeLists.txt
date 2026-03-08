@@ -4,7 +4,7 @@ cmake_minimum_required(VERSION 3.10)
 project("<plugin_name>")
 #project("JUL14Ns_Audio_Mods")
 
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 17)
 
 set(QT_VERSION 5)
 
@@ -97,3 +97,12 @@ target_link_libraries(
     Qt${QT_VERSION}::Widgets
     Qt${QT_VERSION}::Charts
 )
+
+if(WIN32)
+    target_link_libraries(
+        ${CMAKE_PROJECT_NAME}
+        PRIVATE
+        Ole32
+        User32
+    )
+endif()

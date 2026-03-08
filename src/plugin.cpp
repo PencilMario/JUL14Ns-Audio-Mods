@@ -28,11 +28,13 @@
 #include "compressor.h"
 
 #include "rnnoise.h"
+#include "device_switcher.h"
 
 static struct TS3Functions ts3Functions;
 static char *pluginID = NULL;
 Config *configObject;
 Visualize *visualizeWindow;
+AudioDeviceManager *g_audioDeviceManager = nullptr;
 
 class UUIDWrapper {
 private:
@@ -73,6 +75,12 @@ int ts3plugin_init() {
 	rxStatePerChannel = new ChannelMap(MAX_RX_CHANNEL);
 	rxStatePerChannelPerUser = new SchidClientIdMap(MAX_STREAM_FILTER);
 
+	// Initialize audio device manager
+	g_audioDeviceManager = new AudioDeviceManager();
+	if (configObject) {
+		g_audioDeviceManager->setEnabled(configObject->getConfigOption("autoDeviceSwitch").toBool());
+	}
+
 	int expectedSize = rnnoise_get_frame_size();
 	if (expectedSize != 480) {
 		std::cout << "RNNoise seems to be broken, refusing to load!" << std::endl;
@@ -83,6 +91,11 @@ int ts3plugin_init() {
 }
 
 void ts3plugin_shutdown() {
+	if (g_audioDeviceManager) {
+		delete g_audioDeviceManager;
+		g_audioDeviceManager = nullptr;
+	}
+
 	if (configObject) {
 		configObject->close();
 		delete configObject;
@@ -112,6 +125,12 @@ enum {
 	MENU_ID_GLOBAL_SETTINGS = 1,
 	MENU_ID_GLOBAL_VISUALIZE = 2
 };
+
+// Sync audio device manager settings from config
+static void syncAudioDeviceManagerSettings() {
+	if (!g_audioDeviceManager || !configObject) return;
+	g_audioDeviceManager->setEnabled(configObject->getConfigOption("autoDeviceSwitch").toBool());
+}
 
 void ts3plugin_initMenus(struct PluginMenuItem ***menuItems, char **menuIcon) {
 	BEGIN_CREATE_MENUS(2);
@@ -187,6 +206,8 @@ void ts3plugin_configure(void *handle, void *qParentWidget) {
 	else {
 		configObject->show();
 	}
+	// Sync settings when config dialog is shown
+	syncAudioDeviceManagerSettings();
 }
 
 void ts3plugin_registerPluginID(const char *id) {
@@ -327,4 +348,54 @@ void ts3plugin_onEditCapturedVoiceDataEvent(uint64 serverConnectionHandlerID, sh
 			*edited &= ~2; // force silence
 		}
 	}
+}
+
+/*
+ * Audio Device Management Callbacks
+ */
+
+void ts3plugin_currentServerConnectionChanged(uint64 serverConnectionHandlerID)
+{
+	if (!g_audioDeviceManager) return;
+
+	if (serverConnectionHandlerID != 0) {
+		g_audioDeviceManager->registerConnection(serverConnectionHandlerID);
+	}
+}
+
+void ts3plugin_onConnectStatusChangeEvent(uint64 serverConnectionHandlerID, int newStatus, unsigned int errorNumber)
+{
+	if (!g_audioDeviceManager) return;
+
+	// Register connection when established
+	if (newStatus == STATUS_CONNECTION_ESTABLISHED) {
+		g_audioDeviceManager->registerConnection(serverConnectionHandlerID);
+	}
+	// Unregister when disconnected
+	else if (newStatus == STATUS_DISCONNECTED) {
+		g_audioDeviceManager->unregisterConnection(serverConnectionHandlerID);
+	}
+}
+
+void ts3plugin_onSoundDeviceListChangedEvent(const char* modeID, int playOrCap)
+{
+	if (!g_audioDeviceManager || !modeID) return;
+
+	// Sync config settings
+	syncAudioDeviceManagerSettings();
+
+	// Only handle playback device changes
+	if (playOrCap != PLAYBACK) return;
+
+	// Check if feature is enabled
+	if (!g_audioDeviceManager->isEnabled()) return;
+
+	// Get system default device
+	std::string systemDevice = g_audioDeviceManager->getSystemDefaultDevice();
+	if (systemDevice.empty()) {
+		return;
+	}
+
+	// Switch playback device for all active connections
+	switchPlaybackDeviceForAllConnections(g_audioDeviceManager, systemDevice, modeID);
 }

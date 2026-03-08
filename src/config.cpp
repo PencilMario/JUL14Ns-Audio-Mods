@@ -64,6 +64,7 @@ void Config::saveSettings() {
 	setConfigOption("inputAGC", m_ui->input_agc->isChecked());
 
 	setConfigOption("outputFilter", m_ui->output_filter->isChecked());
+	setConfigOption("autoDeviceSwitch", m_ui->auto_device_switch->isChecked());
 	QStringList uuids{};
 	//for (auto& u : m_ui->uuids->toPlainText().split(QRegExp{ "[\n,;|:]" })) {
 	for (auto& u : m_ui->uuids->toPlainText().split(QRegularExpression{ "[\n,;|:]" })) {
@@ -80,6 +81,7 @@ void Config::loadSettings() {
 	m_ui->input_agc->setChecked(getConfigOption("inputAGC").toBool());
 
 	m_ui->output_filter->setChecked(getConfigOption("outputFilter").toBool());
+	m_ui->auto_device_switch->setChecked(getConfigOption("autoDeviceSwitch").toBool());
 	QStringList uuids = getConfigOption("filterIncomingUuids").toStringList();
 	bool first = true;
 	QString uuid_string = "";

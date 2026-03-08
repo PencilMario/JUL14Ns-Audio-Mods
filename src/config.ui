@@ -168,6 +168,13 @@
         </widget>
        </item>
        <item>
+        <widget class="QCheckBox" name="auto_device_switch">
+         <property name="text">
+          <string>系统输出设备变更时自动切换 TeamSpeak 播放设备</string>
+         </property>
+        </widget>
+       </item>
+       <item>
         <widget class="Line" name="line">
          <property name="frameShadow">
           <enum>QFrame::Raised</enum>
