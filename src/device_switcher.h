@@ -44,8 +44,10 @@ private:
 public:
     AudioDeviceListener() {
         // Initialize COM for this thread
+        // Note: S_FALSE means COM was already initialized in this thread, which is OK
         HRESULT hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
         if (SUCCEEDED(hr)) {
+            // SUCCEEDED includes both S_OK and S_FALSE
             m_comInitialized = true;
         }
     }
@@ -89,7 +91,7 @@ public:
                 PropVariantInit(&varName);
 
                 hr = propertyStore->GetValue(PKEY_Device_FriendlyName, &varName);
-                if (SUCCEEDED(hr)) {
+                if (SUCCEEDED(hr) && varName.pwszVal) {
                     // Convert wide string to UTF-8
                     int sizeNeeded = WideCharToMultiByte(CP_UTF8, 0, varName.pwszVal, -1, NULL, 0, NULL, NULL);
                     if (sizeNeeded > 0) {
