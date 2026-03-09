@@ -217,6 +217,9 @@ private:
     std::unique_ptr<AudioDeviceListener> m_deviceListener;
     bool m_enabled = false;
 
+    // Store the last used playback mode ID (for device switching when joining server)
+    std::string m_lastPlaybackModeID;
+
 public:
     AudioDeviceManager() : m_deviceListener(std::make_unique<AudioDeviceListener>()) {
         m_lastSwitchTime = std::chrono::steady_clock::now() - std::chrono::milliseconds(DEBOUNCE_MS + 1);
@@ -331,6 +334,52 @@ public:
      */
     std::string getLastDetectedDevice() const {
         return m_lastDeviceName;
+    }
+
+    /**
+     * @brief Force immediate device check without time interval restriction
+     * Useful when joining a server to ensure correct device is used immediately
+     * Returns true if device needs switching, false otherwise
+     */
+    bool forceCheckAndSwitchDevice() {
+        if (!m_enabled) return false;
+
+        // Get current system device
+        std::string currentDevice = getSystemDefaultDevice();
+        if (currentDevice.empty()) {
+            return false;
+        }
+
+        // Check if device has changed
+        if (currentDevice == m_lastDeviceName) {
+            return false; // No change
+        }
+
+        // Device changed - store new device name
+        m_lastDeviceName = currentDevice;
+
+        // Update check time for future periodic checks
+        m_lastCheckTime = std::chrono::steady_clock::now();
+
+        // Return true to signal that device changed
+        // The actual switching logic will be in plugin.cpp
+        return true;
+    }
+
+    /**
+     * @brief Store the playback mode ID for later use
+     * Called when sound device list changes to remember current mode
+     */
+    void setLastPlaybackModeID(const std::string& modeID) {
+        m_lastPlaybackModeID = modeID;
+    }
+
+    /**
+     * @brief Get the last used playback mode ID
+     * Returns nullptr if not set yet
+     */
+    const char* getLastPlaybackModeID() const {
+        return m_lastPlaybackModeID.empty() ? nullptr : m_lastPlaybackModeID.c_str();
     }
 };
 

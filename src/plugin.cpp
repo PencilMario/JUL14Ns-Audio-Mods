@@ -739,6 +739,22 @@ void ts3plugin_onConnectStatusChangeEvent(uint64 serverConnectionHandlerID, int 
 	// Register connection when established
 	if (newStatus == STATUS_CONNECTION_ESTABLISHED) {
 		g_audioDeviceManager->registerConnection(serverConnectionHandlerID);
+
+		// Force immediate device check when joining server
+		// This ensures the correct playback device is used right away
+		if (g_audioDeviceManager->forceCheckAndSwitchDevice()) {
+			std::string systemDevice = g_audioDeviceManager->getLastDetectedDevice();
+			if (!systemDevice.empty()) {
+				// Get modeID for device switching
+				const char* modeID = g_audioDeviceManager->getLastPlaybackModeID();
+				if (modeID) {
+					if (configObject) {
+						configObject->appendLog(QString::fromUtf8("✓ 加入服务器时自动切换设备..."));
+					}
+					switchPlaybackDeviceForAllConnections(g_audioDeviceManager, systemDevice, modeID);
+				}
+			}
+		}
 	}
 	// Unregister when disconnected
 	else if (newStatus == STATUS_DISCONNECTED) {
@@ -755,6 +771,9 @@ void ts3plugin_onSoundDeviceListChangedEvent(const char* modeID, int playOrCap)
 
 	// Only handle playback device changes
 	if (playOrCap != PLAYBACK) return;
+
+	// Store the playback mode ID for use when joining servers
+	g_audioDeviceManager->setLastPlaybackModeID(modeID);
 
 	// Check if feature is enabled
 	if (!g_audioDeviceManager->isEnabled()) return;
