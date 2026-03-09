@@ -1,6 +1,8 @@
 #pragma once
 
 #include <QtWidgets/QWidget>
+
+#ifdef HAVE_QT_CHARTS
 #include <QtCharts/QChartGlobal>
 #include <QtCharts/QValueAxis>
 
@@ -10,6 +12,11 @@ class QChart;
 QT_CHARTS_END_NAMESPACE
 
 QT_CHARTS_USE_NAMESPACE
+#else
+class QChart;
+class QLineSeries;
+class QValueAxis;
+#endif
 
 QT_BEGIN_NAMESPACE
 class QAudioInput;

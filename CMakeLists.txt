@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.10)
 
 # Don't touch this, it will be set by the build script
-project("<plugin_name>")
-#project("JUL14Ns_Audio_Mods")
+#project("<plugin_name>")
+project("JUL14Ns_Audio_Mods")
 
 set(CMAKE_CXX_STANDARD 17)
 
@@ -48,7 +48,8 @@ message("Looking for Qt...")
 #    add_definitions(-DQT_ADDITIONAL_PACKAGES_PREFIX_PATH="H:/Qt/6.6.0/msvc2019_64")
 #endif()
 
-find_package(Qt${QT_VERSION} REQUIRED Core Widgets Charts)
+find_package(Qt${QT_VERSION} REQUIRED Core Widgets)
+find_package(Qt${QT_VERSION} COMPONENTS Charts)
 
 include_directories("src")
 include_directories("3rdParty/ts3client-pluginsdk/include")
@@ -70,7 +71,11 @@ set(sources
 	3rdParty/rnnoise/src/pitch.c
 	3rdParty/rnnoise/src/kiss_fft.c
 	3rdParty/rnnoise/src/celt_lpc.c
- )
+)
+
+if(NOT Qt${QT_VERSION}_Charts_FOUND)
+    list(REMOVE_ITEM sources src/graph.cpp src/visualize.ui src/visualize.cpp)
+endif()
 
 add_library(${CMAKE_PROJECT_NAME} SHARED ${sources})
 
@@ -95,8 +100,12 @@ target_link_libraries(
     PUBLIC
     Qt${QT_VERSION}::Core
     Qt${QT_VERSION}::Widgets
-    Qt${QT_VERSION}::Charts
 )
+
+if(Qt${QT_VERSION}_Charts_FOUND)
+    target_link_libraries(${CMAKE_PROJECT_NAME} PUBLIC Qt${QT_VERSION}::Charts)
+    add_definitions(-DHAVE_QT_CHARTS)
+endif()
 
 if(WIN32)
     target_link_libraries(

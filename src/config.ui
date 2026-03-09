@@ -227,6 +227,81 @@
        </item>
       </layout>
      </widget>
+     <widget class="QWidget" name="logs">
+      <attribute name="title">
+       <string>日志</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="verticalLayout_logs">
+       <item>
+        <widget class="QLabel" name="logs_label">
+         <property name="text">
+          <string>设备切换日志：</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPlainTextEdit" name="logs_output">
+         <property name="readOnly">
+          <bool>true</bool>
+         </property>
+         <property name="font">
+          <font>
+           <family>Courier New</family>
+           <pointsize>9</pointsize>
+          </font>
+         </property>
+         <property name="placeholderText">
+          <string>设备切换操作日志将显示在这里...</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="logs_buttons">
+         <item>
+          <widget class="QPushButton" name="btn_show_current_device">
+           <property name="text">
+            <string>显示当前设备</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btn_switch_to_default">
+           <property name="text">
+            <string>切换到默认设备</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btn_show_ts3_devices">
+           <property name="text">
+            <string>显示TS3可用设备</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btn_clear_logs">
+           <property name="text">
+            <string>清空日志</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <spacer name="horizontalSpacer">
+           <property name="orientation">
+            <enum>Qt::Horizontal</enum>
+           </property>
+           <property name="sizeHint" stdset="0">
+            <size>
+             <width>40</width>
+             <height>20</height>
+            </size>
+           </property>
+          </spacer>
+         </item>
+        </layout>
+       </item>
+      </layout>
+     </widget>
     </widget>
    </item>
    <item>

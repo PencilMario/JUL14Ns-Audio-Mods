@@ -3,19 +3,25 @@
 #include <QtMultimedia/QAudioDeviceInfo>
 #include <QtMultimedia/QAudioInput>
 
+#ifdef HAVE_QT_CHARTS
 #include <QtCharts/QChartView>
 #include <QtCharts/QLineSeries>
 #include <QtCharts/QChart>
 
-#include <QtWidgets/QVBoxLayout>
-
 QT_CHARTS_USE_NAMESPACE
+#endif
+
+#include <QtWidgets/QVBoxLayout>
 
 Graph::Graph(QWidget* parent) :
     QWidget(parent),
-    m_chart(new QChart),
-    m_series(new QLineSeries)
+    m_chart(nullptr),
+    m_series(nullptr)
 {
+#ifdef HAVE_QT_CHARTS
+    m_chart = new QChart;
+    m_series = new QLineSeries;
+
     QChartView* chartView = new QChartView(m_chart);
     chartView->setMinimumSize(500, 300);
     m_chart->addSeries(m_series);
@@ -27,9 +33,12 @@ Graph::Graph(QWidget* parent) :
     m_chart->addAxis(axisY, Qt::AlignLeft);
     m_series->attachAxis(axisY);
     m_chart->legend()->hide();
-    //m_chart->setTitle("Some cool data!");
 
     parent->layout()->addWidget(chartView);
+#else
+    axisX = nullptr;
+    axisY = nullptr;
+#endif
 }
 
 Graph::~Graph()
@@ -38,6 +47,7 @@ Graph::~Graph()
 
 void Graph::addDataPoint(double key, double data)
 {
+#ifdef HAVE_QT_CHARTS
     m_buffer.push_back(QPointF(key, data));
     if (m_buffer.size() > 3200)
     {
@@ -45,10 +55,13 @@ void Graph::addDataPoint(double key, double data)
     }
     m_series->replace(m_buffer);
     axisX->setRange(key-30, key);
+#endif
 }
 
 void Graph::resetData()
 {
+#ifdef HAVE_QT_CHARTS
     m_buffer.clear();
     m_series->replace(m_buffer);
+#endif
 }

@@ -4,3 +4,25 @@ out
 .vs
 CMakePresets.json
 CMakeUserPresets.json
+
+# Build outputs
+*.ts3_plugin
+deploy/plugins/*.dll
+
+# CMake
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+*.vcxproj
+*.vcxproj.filters
+*.sln
+
+# IDE/Editor
+*.user
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db

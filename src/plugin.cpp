@@ -8,7 +8,6 @@
 #include <string.h>
 #include <sstream>
 #include <algorithm>
-#include <span>
 #include <cstring>
 
 #include "teamspeak/public_errors.h"
@@ -24,16 +23,24 @@
 #include "fixed_map.h"
 #include "lufs.h"
 #include "buffer.h"
+#ifdef HAVE_QT_CHARTS
 #include "visualize.h"
+#endif
 #include "compressor.h"
 
 #include "rnnoise.h"
 #include "device_switcher.h"
 
+// Qt includes should be last
+#include <QtWidgets/QPushButton>
+#include <QtCore/QObject>
+
 static struct TS3Functions ts3Functions;
 static char *pluginID = NULL;
 Config *configObject;
+#ifdef HAVE_QT_CHARTS
 Visualize *visualizeWindow;
+#endif
 AudioDeviceManager *g_audioDeviceManager = nullptr;
 
 class UUIDWrapper {
@@ -62,6 +69,116 @@ ChannelMap* rxStatePerChannel;
 SchidClientIdMap* rxStatePerChannelPerUser;
 
 
+/*
+ * Device Switching Helper Functions
+ * These functions require TS3 API and are implemented here instead of in the header
+ */
+
+/**
+ * @brief Find a TS3 device that matches the system device name
+ * Uses 3-tier matching: exact match, partial match, or first available
+ * Matches against displayName (deviceList[i][0]) and returns deviceID (deviceList[i][1])
+ * Note: TS3 API format is opposite to documentation: [0]=displayName, [1]=deviceID(GUID)
+ * @return Device ID (GUID) from TS3, or empty string if not found
+ */
+static std::string findMatchingDevice(AudioDeviceManager* manager, const std::string& systemDevice, const char* modeID) {
+	if (!modeID || systemDevice.empty()) {
+		return {};
+	}
+
+	// Get available playback devices for this mode
+	char*** deviceList = nullptr;
+	unsigned int error = ts3Functions.getPlaybackDeviceList(modeID, &deviceList);
+	if (error != ERROR_ok || !deviceList) {
+		return {};
+	}
+
+	std::string result;
+	std::string systemDeviceLower = toLower(systemDevice);
+
+	// Iterate through devices and find matching one
+	// Actual format (different from docs): deviceList[i][0] = displayName, deviceList[i][1] = deviceID(GUID)
+	// Tier 1: Exact match on display name
+	for (int i = 0; deviceList[i] != nullptr; ++i) {
+		char* displayName = deviceList[i][0];
+		char* deviceId = deviceList[i][1];
+		if (!displayName || !deviceId) continue;
+
+		std::string displayNameLower = toLower(displayName);
+		if (displayNameLower == systemDeviceLower) {
+			result = deviceId;  // Return the GUID device ID
+			break;
+		}
+	}
+
+	// Tier 2: Partial match if no exact match found
+	if (result.empty()) {
+		for (int i = 0; deviceList[i] != nullptr; ++i) {
+			char* displayName = deviceList[i][0];
+			char* deviceId = deviceList[i][1];
+			if (!displayName || !deviceId) continue;
+
+			std::string displayNameLower = toLower(displayName);
+			if (displayNameLower.find(systemDeviceLower) != std::string::npos ||
+				systemDeviceLower.find(displayNameLower) != std::string::npos) {
+				result = deviceId;  // Return the GUID device ID
+				break;
+			}
+		}
+	}
+
+	// Tier 3: Use first available device if no match found
+	if (result.empty() && deviceList[0] != nullptr && deviceList[0][1] != nullptr) {
+		result = deviceList[0][1];  // Return the GUID device ID
+	}
+
+	// Clean up
+	ts3Functions.freeMemory(deviceList);
+
+	return result;
+}
+
+/**
+ * @brief Switch all active connections to the matching system device
+ */
+static void switchPlaybackDeviceForAllConnections(AudioDeviceManager* manager, const std::string& systemDevice, const char* modeID) {
+	if (!manager || systemDevice.empty() || !modeID) {
+		return;
+	}
+
+	// Check debounce
+	if (!manager->canSwitch()) {
+		return;
+	}
+
+	// Find matching device
+	std::string matchingDevice = findMatchingDevice(manager, systemDevice, modeID);
+	if (matchingDevice.empty()) {
+		return;
+	}
+
+	// Switch all active connections
+	auto connections = manager->getActiveConnections();
+	for (uint64_t schid : connections) {
+		// First close the existing device to avoid ERROR_sound_handler_has_device
+		ts3Functions.closePlaybackDevice(schid);
+
+		// Now open the new device
+		unsigned int error = ts3Functions.openPlaybackDevice(schid, modeID, matchingDevice.c_str());
+		if (error != ERROR_ok && configObject) {
+			char* errorMsg = nullptr;
+			ts3Functions.getErrorMessage(error, &errorMsg);
+			std::ostringstream logMessage;
+			logMessage << "Failed to switch device to " << matchingDevice << " for connection " << schid << ": " << (errorMsg ? errorMsg : "Unknown error");
+			configObject->appendLog(QString::fromStdString(logMessage.str()));
+			if (errorMsg) ts3Functions.freeMemory(errorMsg);
+		}
+	}
+
+	// Update switch timestamp
+	manager->updateSwitchTime();
+}
+
 /*-------------------------- Configure Here --------------------------*/
 /*
  * The following functions should be configured to your needs.
@@ -70,7 +187,9 @@ int ts3plugin_init() {
 	char configPath[PATH_BUFSIZE];
 	ts3Functions.getConfigPath(configPath, PATH_BUFSIZE);
 	configObject = new Config(QString::fromUtf8(configPath) + CONFIG_FILE);
+#ifdef HAVE_QT_CHARTS
 	visualizeWindow = new Visualize();
+#endif
 	txStatePerChannel = new ChannelMap(MAX_RX_CHANNEL);
 	rxStatePerChannel = new ChannelMap(MAX_RX_CHANNEL);
 	rxStatePerChannelPerUser = new SchidClientIdMap(MAX_STREAM_FILTER);
@@ -79,6 +198,176 @@ int ts3plugin_init() {
 	g_audioDeviceManager = new AudioDeviceManager();
 	if (configObject) {
 		g_audioDeviceManager->setEnabled(configObject->getConfigOption("autoDeviceSwitch").toBool());
+
+		// Initialize device info in logs
+		AudioDeviceListener deviceListener;
+		std::string deviceInfo = deviceListener.getDefaultDeviceInfo();
+		configObject->appendLog(QString::fromUtf8("插件初始化"));
+		configObject->appendLog(QString::fromUtf8(deviceInfo.c_str()));
+
+		// Set up device query handler
+		configObject->setShowDeviceHandler([]() -> std::string {
+			AudioDeviceListener listener;
+			std::string result = listener.getDefaultDeviceInfo();
+			result += "\n---\n";
+
+			// Get TS3 current playback device for the first active connection
+			if (g_audioDeviceManager) {
+				auto connections = g_audioDeviceManager->getActiveConnections();
+				if (!connections.empty()) {
+					char* currentDevice = nullptr;
+					int isDefault = 0;
+					unsigned int error = ts3Functions.getCurrentPlaybackDeviceName(connections[0], &currentDevice, &isDefault);
+					if (error == ERROR_ok && currentDevice) {
+						result += "TS3当前播放设备: " + std::string(currentDevice) + "\n";
+						result += "是否为默认: " + std::string(isDefault ? "是" : "否");
+						ts3Functions.freeMemory(currentDevice);
+					}
+				}
+			}
+
+			return result;
+		});
+
+		// Set up device switch handler
+		configObject->setSwitchDeviceHandler([](const std::string& unused) -> std::string {
+			AudioDeviceListener listener;
+			std::string deviceName = listener.getDefaultPlaybackDeviceName();
+
+			if (deviceName.empty()) {
+				return "❌ 无法获取默认设备";
+			}
+
+			if (!g_audioDeviceManager) {
+				return "❌ 设备管理器未初始化";
+			}
+
+			auto connections = g_audioDeviceManager->getActiveConnections();
+			if (connections.empty()) {
+				return "无活跃连接";
+			}
+
+			// Get the playback mode (try to get default mode, or use "default")
+			char* modeID = nullptr;
+			unsigned int modeError = ts3Functions.getDefaultPlayBackMode(&modeID);
+			if (modeError != ERROR_ok || !modeID) {
+				modeID = const_cast<char*>("default");
+			}
+
+			// Find the matching device in TS3's device list
+			std::string ts3Device = findMatchingDevice(g_audioDeviceManager, deviceName, modeID);
+			if (ts3Device.empty()) {
+				std::string errorMsg = "❌ 无法找到匹配的TS3设备\n系统设备: " + deviceName;
+				if (modeID && std::string(modeID) != "default") ts3Functions.freeMemory(modeID);
+				return errorMsg;
+			}
+
+			std::string result = "正在切换到：\n";
+			result += "  系统设备: " + deviceName + "\n";
+			result += "  TS3模式: " + std::string(modeID ? modeID : "default") + "\n";
+			result += "  TS3设备ID: " + ts3Device + "\n";
+
+			for (uint64_t schid : connections) {
+				// First close the existing device to avoid ERROR_sound_handler_has_device
+				ts3Functions.closePlaybackDevice(schid);
+
+				// Now open the new device
+				unsigned int error = ts3Functions.openPlaybackDevice(schid, modeID, ts3Device.c_str());
+				if (error != ERROR_ok) {
+					char* errorMsg = nullptr;
+					ts3Functions.getErrorMessage(error, &errorMsg);
+					result += "❌ 切换失败: " + std::string(errorMsg ? errorMsg : "未知错误") + "\n";
+					if (errorMsg) ts3Functions.freeMemory(errorMsg);
+				} else {
+					result += "✓ 连接 " + std::to_string(schid) + " 切换成功\n";
+				}
+			}
+
+			if (modeID && std::string(modeID) != "default") {
+				ts3Functions.freeMemory(modeID);
+			}
+
+			// Add TS3 current playback device name to result
+			result += "\n---\n";
+			if (!connections.empty()) {
+				char* currentDevice = nullptr;
+				int isDefault = 0;
+				unsigned int error = ts3Functions.getCurrentPlaybackDeviceName(connections[0], &currentDevice, &isDefault);
+				if (error == ERROR_ok && currentDevice) {
+					result += "TS3当前播放设备: " + std::string(currentDevice) + "\n";
+					result += "是否为默认: " + std::string(isDefault ? "是" : "否");
+					ts3Functions.freeMemory(currentDevice);
+				}
+			}
+
+			return result;
+		});
+
+		// Set up TS3 devices listing handler
+		configObject->setShowTS3DevicesHandler([]() -> std::string {
+			std::string result = "TS3 可用播放设备列表：\n";
+			result += "=" + std::string(80, '=') + "\n";
+
+			// Try to get default playback mode
+			char* defaultMode = nullptr;
+			unsigned int modeError = ts3Functions.getDefaultPlayBackMode(&defaultMode);
+			if (modeError != ERROR_ok || !defaultMode) {
+				result += "❌ 无法获取默认播放模式\n";
+				return result;
+			}
+
+			// Get playback device list for the default mode
+			char*** deviceList = nullptr;
+			unsigned int error = ts3Functions.getPlaybackDeviceList(defaultMode, &deviceList);
+			if (error != ERROR_ok || !deviceList) {
+				result += "❌ 无法获取设备列表\n";
+				if (defaultMode) ts3Functions.freeMemory(defaultMode);
+				return result;
+			}
+
+			// List all available devices
+			// Actual format: deviceList[i][0] = displayName, deviceList[i][1] = deviceID(GUID)
+			result += "播放模式: " + std::string(defaultMode) + "\n\n";
+			int deviceCount = 0;
+			for (int i = 0; deviceList[i] != nullptr; ++i) {
+				if (deviceList[i][0] && deviceList[i][1]) {
+					deviceCount++;
+					result += std::to_string(deviceCount) + ". [显示名] " + std::string(deviceList[i][0]) + "\n";
+					result += "   [设备ID] " + std::string(deviceList[i][1]) + "\n";
+				}
+			}
+
+			if (deviceCount == 0) {
+				result += "   (无可用设备)\n";
+			}
+
+			result += "=" + std::string(80, '=') + "\n";
+
+			// Clean up
+			ts3Functions.freeMemory(deviceList);
+			if (defaultMode) ts3Functions.freeMemory(defaultMode);
+
+			// Add TS3 current playback device name to result
+			result += "\n当前TS3播放设备: ";
+
+			// Get the first active connection to query current device
+			auto connections = g_audioDeviceManager ? g_audioDeviceManager->getActiveConnections() : std::vector<uint64_t>();
+			if (!connections.empty()) {
+				char* currentDevice = nullptr;
+				int isDefault = 0;
+				unsigned int error = ts3Functions.getCurrentPlaybackDeviceName(connections[0], &currentDevice, &isDefault);
+				if (error == ERROR_ok && currentDevice) {
+					result += std::string(currentDevice);
+					ts3Functions.freeMemory(currentDevice);
+				} else {
+					result += "无法获取";
+				}
+			} else {
+				result += "无活跃连接";
+			}
+
+			return result;
+		});
 	}
 
 	int expectedSize = rnnoise_get_frame_size();
@@ -102,11 +391,13 @@ void ts3plugin_shutdown() {
 		configObject = nullptr;
 	}
 
+#ifdef HAVE_QT_CHARTS
 	if (visualizeWindow) {
 		visualizeWindow->close();
 		delete visualizeWindow;
 		visualizeWindow = nullptr;
 	}
+#endif
 
 	if (pluginID) {
 		free(pluginID);
@@ -133,10 +424,16 @@ static void syncAudioDeviceManagerSettings() {
 }
 
 void ts3plugin_initMenus(struct PluginMenuItem ***menuItems, char **menuIcon) {
+#ifdef HAVE_QT_CHARTS
 	BEGIN_CREATE_MENUS(2);
 	CREATE_MENU_ITEM(PLUGIN_MENU_TYPE_GLOBAL, MENU_ID_GLOBAL_SETTINGS, "Settings", "");
 	CREATE_MENU_ITEM(PLUGIN_MENU_TYPE_GLOBAL, MENU_ID_GLOBAL_VISUALIZE, "Visualize", "");
 	END_CREATE_MENUS;
+#else
+	BEGIN_CREATE_MENUS(1);
+	CREATE_MENU_ITEM(PLUGIN_MENU_TYPE_GLOBAL, MENU_ID_GLOBAL_SETTINGS, "Settings", "");
+	END_CREATE_MENUS;
+#endif
 	menuIcon = NULL;
 }
 
@@ -152,6 +449,7 @@ void ts3plugin_onMenuItemEvent(uint64 serverConnectionHandlerID, enum PluginMenu
 			else
 				configObject->show();
 			break;
+#ifdef HAVE_QT_CHARTS
 		case MENU_ID_GLOBAL_VISUALIZE:
 			if (visualizeWindow->isVisible()) {
 				visualizeWindow->raise();
@@ -160,6 +458,7 @@ void ts3plugin_onMenuItemEvent(uint64 serverConnectionHandlerID, enum PluginMenu
 			else
 				visualizeWindow->show();
 			break;
+#endif
 		}
 		break;
 	}
@@ -281,6 +580,30 @@ void ts3plugin_onEditMixedPlaybackVoiceDataEvent(uint64 serverConnectionHandlerI
 
 void ts3plugin_onEditCapturedVoiceDataEvent(uint64 serverConnectionHandlerID, short *samples, int sampleCount, int channels, int *edited)
 {
+	// Check and auto-switch device if it has changed (every 2 seconds)
+	if (g_audioDeviceManager && g_audioDeviceManager->checkAndSwitchDeviceIfChanged()) {
+		// Device changed - perform automatic switch
+		std::string systemDevice = g_audioDeviceManager->getLastDetectedDevice();
+
+		configObject->appendLog(QString::fromUtf8("系统输出设备已变更，正在自动切换..."));
+		configObject->appendLog(QString::fromUtf8(("检测到设备: " + systemDevice).c_str()));
+
+		// Get the playback mode
+		char* modeID = nullptr;
+		unsigned int modeError = ts3Functions.getDefaultPlayBackMode(&modeID);
+		if (modeError != ERROR_ok || !modeID) {
+			modeID = const_cast<char*>("default");
+		}
+
+		// Use existing switch function which handles finding device and switching
+		switchPlaybackDeviceForAllConnections(g_audioDeviceManager, systemDevice, modeID);
+		configObject->appendLog(QString::fromUtf8("✓ 自动切换设备完成"));
+
+		if (modeID && std::string(modeID) != "default") {
+			ts3Functions.freeMemory(modeID);
+		}
+	}
+
 	// ensure 480 samples (10ms 48kHz)
 	if (sampleCount != 480) {
 		std::ostringstream logMessage;
@@ -320,7 +643,7 @@ void ts3plugin_onEditCapturedVoiceDataEvent(uint64 serverConnectionHandlerID, sh
 			return current + (vadProbOverTime.size() - index) * next;
 		});
 		smoothedVadProb /= vadProbOverTime.size() / 2 * (1 + vadProbOverTime.size());
-		float targetGain = std::lerp(SILENCE_TARGET_GAIN, VOICE_TARGET_GAIN, smoothedVadProb);
+		float targetGain = SILENCE_TARGET_GAIN + (VOICE_TARGET_GAIN - SILENCE_TARGET_GAIN) * smoothedVadProb;
 		for (int i = 0; i < 480; i++) {
 			CompressorMetaData cmd = compressor.process(&samples[channels * i], channels, targetGain);
 			loudness += cmd.loudness;
@@ -330,9 +653,11 @@ void ts3plugin_onEditCapturedVoiceDataEvent(uint64 serverConnectionHandlerID, sh
 		loudness /= sampleCount;
 		adjustment /= sampleCount;
 		adjustedLoudness /= sampleCount;
+#ifdef HAVE_QT_CHARTS
 		visualizeWindow->addLufsData(loudness);
 		visualizeWindow->addAgcData(adjustment);
 		visualizeWindow->addLufsAgcData(adjustedLoudness);
+#endif
 	}
 
 	if (vad) {
@@ -349,6 +674,11 @@ void ts3plugin_onEditCapturedVoiceDataEvent(uint64 serverConnectionHandlerID, sh
 		}
 	}
 }
+
+/*
+ * Device Switching Helper Functions
+ * These functions require TS3 API and are implemented here instead of in the header
+ */
 
 /*
  * Audio Device Management Callbacks

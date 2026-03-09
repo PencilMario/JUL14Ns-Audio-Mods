@@ -10,6 +10,7 @@ m_ui(std::make_unique<Ui::visualizeui>())
 
 	setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint);
 
+#ifdef HAVE_QT_CHARTS
 	m_ui->agcPlot->axisY->setRange(0, 2);
 	m_ui->agcPlot->axisY->setTitleText("Calculated AGC Adjustment (Factor)");
 	m_ui->agcPlot->axisX->setTitleText("Time since monitoring start");
@@ -19,6 +20,7 @@ m_ui(std::make_unique<Ui::visualizeui>())
 	m_ui->lufsAgcPlot->axisY->setRange(-70, 10);
 	m_ui->lufsAgcPlot->axisY->setTitleText("Volume after Compressor (LUFS)");
 	m_ui->lufsAgcPlot->axisX->setTitleText("Time since monitoring start");
+#endif
 
 	time = QTime::currentTime();
 }

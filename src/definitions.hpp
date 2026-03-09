@@ -14,7 +14,7 @@
 
 /*-------------------------- INTERNAL DEFINITIONS --------------------------*/
 // don't change this, it is replaced by the build script
-#define PLUGIN_VERSION "<version>"
+#define PLUGIN_VERSION "1.0.3"
 
 #define PATH_BUFSIZE 512
 #define COMMAND_BUFSIZE 128
