@@ -161,10 +161,13 @@ static void switchPlaybackDeviceForAllConnections(AudioDeviceManager* manager, c
 	// Switch all active connections
 	auto connections = manager->getActiveConnections();
 	for (uint64_t schid : connections) {
-		// Save the current volume modifier before closing the device
-		// Volume modifier is in decibels (0 = no change, negative = quieter, positive = louder)
+		// Save the current volume settings before closing the device
 		float savedVolumeModifier = 0.0f;
 		unsigned int volumeError = ts3Functions.getPlaybackConfigValueAsFloat(schid, "volume_modifier", &savedVolumeModifier);
+
+		// Save the sound pack volume (wave volume)
+		float savedWaveVolume = 0.0f;
+		unsigned int waveVolumeError = ts3Functions.getPlaybackConfigValueAsFloat(schid, "volume_factor_wave", &savedWaveVolume);
 
 		// First close the existing device to avoid ERROR_sound_handler_has_device
 		ts3Functions.closePlaybackDevice(schid);
@@ -179,14 +182,27 @@ static void switchPlaybackDeviceForAllConnections(AudioDeviceManager* manager, c
 			configObject->appendLog(QString::fromStdString(logMessage.str()));
 			if (errorMsg) ts3Functions.freeMemory(errorMsg);
 		} else {
-			// Device switched successfully - restore the volume modifier and enable echo cancellation
+			// Device switched successfully - restore the volume settings and enable echo cancellation
+
+			// Restore playback device volume
 			if (volumeError == ERROR_ok) {
 				std::ostringstream volumeStream;
 				volumeStream << std::fixed << std::setprecision(1) << savedVolumeModifier;
 				std::string volumeStr = volumeStream.str();
 				unsigned int setError = ts3Functions.setPlaybackConfigValue(schid, "volume_modifier", volumeStr.c_str());
 				if (setError != ERROR_ok && configObject) {
-					configObject->appendLog(QString::fromUtf8("⚠ 恢复音量设置失败"));
+					configObject->appendLog(QString::fromUtf8("⚠ 恢复播放设备音量失败"));
+				}
+			}
+
+			// Restore sound pack volume (wave volume)
+			if (waveVolumeError == ERROR_ok) {
+				std::ostringstream waveVolumeStream;
+				waveVolumeStream << std::fixed << std::setprecision(1) << savedWaveVolume;
+				std::string waveVolumeStr = waveVolumeStream.str();
+				unsigned int setWaveError = ts3Functions.setPlaybackConfigValue(schid, "volume_factor_wave", waveVolumeStr.c_str());
+				if (setWaveError != ERROR_ok && configObject) {
+					configObject->appendLog(QString::fromUtf8("⚠ 恢复音效包音量失败"));
 				}
 			}
 
