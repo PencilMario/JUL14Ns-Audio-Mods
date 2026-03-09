@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sstream>
+#include <iomanip>
 #include <algorithm>
 #include <cstring>
 
@@ -160,6 +161,11 @@ static void switchPlaybackDeviceForAllConnections(AudioDeviceManager* manager, c
 	// Switch all active connections
 	auto connections = manager->getActiveConnections();
 	for (uint64_t schid : connections) {
+		// Save the current volume modifier before closing the device
+		// Volume modifier is in decibels (0 = no change, negative = quieter, positive = louder)
+		float savedVolumeModifier = 0.0f;
+		unsigned int volumeError = ts3Functions.getPlaybackConfigValueAsFloat(schid, "volume_modifier", &savedVolumeModifier);
+
 		// First close the existing device to avoid ERROR_sound_handler_has_device
 		ts3Functions.closePlaybackDevice(schid);
 
@@ -172,6 +178,23 @@ static void switchPlaybackDeviceForAllConnections(AudioDeviceManager* manager, c
 			logMessage << "Failed to switch device to " << matchingDevice << " for connection " << schid << ": " << (errorMsg ? errorMsg : "Unknown error");
 			configObject->appendLog(QString::fromStdString(logMessage.str()));
 			if (errorMsg) ts3Functions.freeMemory(errorMsg);
+		} else {
+			// Device switched successfully - restore the volume modifier and enable echo cancellation
+			if (volumeError == ERROR_ok) {
+				std::ostringstream volumeStream;
+				volumeStream << std::fixed << std::setprecision(1) << savedVolumeModifier;
+				std::string volumeStr = volumeStream.str();
+				unsigned int setError = ts3Functions.setPlaybackConfigValue(schid, "volume_modifier", volumeStr.c_str());
+				if (setError != ERROR_ok && configObject) {
+					configObject->appendLog(QString::fromUtf8("⚠ 恢复音量设置失败"));
+				}
+			}
+
+			// Automatically enable echo cancellation
+			unsigned int echoError = ts3Functions.setPreProcessorConfigValue(schid, "echo_canceling", "true");
+			if (echoError != ERROR_ok && configObject) {
+				configObject->appendLog(QString::fromUtf8("⚠ 启用回声消除失败"));
+			}
 		}
 	}
 
